@@ -15,6 +15,7 @@
 #endif /* TDC7200_H_ */
 #pragma once
 #include <inttypes.h>
+#include "xspi.h"
 
 class TDC7200
 {
@@ -83,8 +84,8 @@ class TDC7200
         int64_t  m_normLsb;         //< Cached normLsb value for tof calculation.
         uint64_t m_overflowPs;      //< Overflow time, in [ps].
 
-        uint8_t  spiReadReg8(const uint8_t addr);
-        uint32_t spiReadReg24(const uint8_t addr);
-        void     spiWriteReg8(const uint8_t addr, const uint8_t val);
+        uint8_t  spiReadReg8(const uint8_t addr,XSpi *SpiInstancePtr);
+        uint32_t spiReadReg24(const uint8_t addr,XSpi *SpiInstancePtr);
+        void     spiWriteReg8(const uint8_t addr, const uint8_t val,XSpi *SpiInstancePtr);
 };
 

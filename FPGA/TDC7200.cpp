@@ -9,7 +9,11 @@
 
 
 #include "TDC7200.h"
-#include <xspi.h>
+#include "xparameters.h"
+#include "xspi.h"
+
+#define SPI_DEVICE_ID		XPAR_AXI_QUAD_SPI_0_DEVICE_ID
+XSpi  SpiInstance;
 
 #define MSBFIRST 1
 #define SPI_MODE0 0x00
@@ -106,7 +110,7 @@ TDC7200::TDC7200(const uint8_t pinEnable, const uint8_t pinCs, const uint32_t cl
     :   m_pinEnable(pinEnable),
         m_pinCs(pinCs),
         m_clkPeriodPs(uint64_t(PS_PER_SEC) / uint64_t(clockFreqHz)),
-        m_overflowPs(NULL)
+        m_overflowPs(0)
 {
 }
 u8 bit(u8 a)
@@ -130,17 +134,48 @@ bool TDC7200::begin()
 //    pinMode(m_pinCs, OUTPUT);
 //    SPI.begin();
 
+	XSpi_Config *ConfigPtr;
+	int Status;
+
+	ConfigPtr = XSpi_LookupConfig(SPI_DEVICE_ID);
+	if (ConfigPtr == NULL) {
+		xil_printf("device not found  \n \r");
+		return XST_DEVICE_NOT_FOUND;
+	}
+
+	Status = XSpi_CfgInitialize(&SpiInstance, ConfigPtr,ConfigPtr->BaseAddress);
+	if (Status != XST_SUCCESS) {
+		xil_printf("device initialize failed \n \r");
+		return XST_FAILURE;
+	}
+
+	Status = XSpi_SetOptions(&SpiInstance, XSP_MASTER_OPTION | XSP_MANUAL_SSELECT_OPTION);
+	if (Status != XST_SUCCESS) {
+		xil_printf("spi initialize failed \n \r");
+		return XST_FAILURE;
+	}
+
+	XSpi_Start(&SpiInstance);
+
+	XSpi_IntrGlobalDisable(&SpiInstance);
+	xil_printf("%d \n \r",XSpi_GetStatusReg(&SpiInstance));
+	xil_printf("SPI initialized \n \r");
+	XSpi_SetSlaveSelect(&SpiInstance, 0x80000000);
+
     // -- Comms sanity check
-    if (   (spiReadReg8(TDC7200_REG_ADR_CONFIG2)  != TDC7200_REG_DEFAULTS_CONFIG2)
-        or (spiReadReg8(TDC7200_REG_ADR_INT_MASK) != TDC7200_REG_DEFAULTS_INT_MASK) )
+    if (   (spiReadReg8(TDC7200_REG_ADR_CONFIG2,&SpiInstance)  != TDC7200_REG_DEFAULTS_CONFIG2)
+        or (spiReadReg8(TDC7200_REG_ADR_INT_MASK,&SpiInstance) != TDC7200_REG_DEFAULTS_INT_MASK) )
     {
+    	xil_printf("check comm  \n \r");
         return false;
     }
 
     // Assert interrupt output on overflow and measurement finished
     spiWriteReg8(TDC7200_REG_ADR_INT_MASK,   bit(TDC7200_REG_SHIFT_INT_MASK_CLOCK_CNTR_OVF_MASK)
                                            | bit(TDC7200_REG_SHIFT_INT_MASK_COARSE_CNTR_OVF_MASK)
-                                           | bit(TDC7200_REG_SHIFT_INT_MASK_NEW_MEAS_MASK) );
+                                           | bit(TDC7200_REG_SHIFT_INT_MASK_NEW_MEAS_MASK),&SpiInstance );
+
+	xil_printf("success  \n \r");
 
     return true;
 }
@@ -189,7 +224,7 @@ bool TDC7200::setupMeasurement(const uint8_t cal2Periods, const uint8_t avgCycle
     // Config1 Start measurement
     m_config1 |= bit(TDC7200_REG_SHIFT_CONFIG1_START_MEAS);
 
-    spiWriteReg8(TDC7200_REG_ADR_CONFIG2, config2);
+    spiWriteReg8(TDC7200_REG_ADR_CONFIG2, config2,&SpiInstance);
 
     return true;
 }
@@ -198,8 +233,8 @@ void TDC7200::setupStopMask(const uint64_t stopMaskPs)
 {
     // Convert duration of stopmask from [ps] to clock increments.
     uint16_t stopMaskClk = stopMaskPs / m_clkPeriodPs;
-    spiWriteReg8(TDC7200_REG_ADR_CLOCK_CNTR_STOP_MASK_H, stopMaskClk >> 8);
-    spiWriteReg8(TDC7200_REG_ADR_CLOCK_CNTR_STOP_MASK_L, stopMaskClk);
+    spiWriteReg8(TDC7200_REG_ADR_CLOCK_CNTR_STOP_MASK_H, stopMaskClk >> 8,&SpiInstance);
+    spiWriteReg8(TDC7200_REG_ADR_CLOCK_CNTR_STOP_MASK_L, stopMaskClk,&SpiInstance);
 }
 
 void TDC7200::setupOverflow(const uint64_t overflowPs)
@@ -254,126 +289,144 @@ void TDC7200::setupOverflow(const uint64_t overflowPs)
         }
     }
     // Write both overflow for mode 1 & 2. If mode 1 is active, mode 2 will be set to max and vice versa.
-    spiWriteReg8(TDC7200_REG_ADR_COARSE_CNTR_OVF_H, coarseOvf >> 8);
-    spiWriteReg8(TDC7200_REG_ADR_COARSE_CNTR_OVF_L, coarseOvf);
+    spiWriteReg8(TDC7200_REG_ADR_COARSE_CNTR_OVF_H, coarseOvf >> 8,&SpiInstance);
+    spiWriteReg8(TDC7200_REG_ADR_COARSE_CNTR_OVF_L, coarseOvf,&SpiInstance);
 
-    spiWriteReg8(TDC7200_REG_ADR_CLOCK_CNTR_OVF_H, clockOvf >> 8);
-    spiWriteReg8(TDC7200_REG_ADR_CLOCK_CNTR_OVF_L, clockOvf);
+    spiWriteReg8(TDC7200_REG_ADR_CLOCK_CNTR_OVF_H, clockOvf >> 8,&SpiInstance);
+    spiWriteReg8(TDC7200_REG_ADR_CLOCK_CNTR_OVF_L, clockOvf,&SpiInstance);
 
     // Remember for mode changes
     m_overflowPs = overflowPs;
 }
 
 
-void TDC7200::startMeasurement()
-{
-    // Clear status
-    spiWriteReg8(TDC7200_REG_ADR_INT_STATUS,   bit(TDC7200_REG_SHIFT_INT_STATUS_MEAS_COMPLETE_FLAG)
-                                             | bit(TDC7200_REG_SHIFT_INT_STATUS_MEAS_STARTED_FLAG)
-                                             | bit(TDC7200_REG_SHIFT_INT_STATUS_CLOCK_CNTR_OVF_INT)
-                                             | bit(TDC7200_REG_SHIFT_INT_STATUS_COARSE_CNTR_OVF_INT)
-                                             | bit(TDC7200_REG_SHIFT_INT_STATUS_NEW_MEAS_INT) );
-
-    // Force recalculation of normLsb after measurement ended
-    m_normLsb = 0ull;
-
-    // Start measurement
-    spiWriteReg8(TDC7200_REG_ADR_CONFIG1, m_config1);
-}
-
-bool TDC7200::readMeasurement(const uint8_t stop, uint64_t& tof)
-{
-    tof = 0ull;
-
-    if (stop > m_numStops)
-        return false;
-/*
-    uint8_t status = spiReadReg8(TDC7200_REG_ADR_INT_STATUS);
-    if (not (status & (   bit(TDC7200_REG_SHIFT_INT_STATUS_MEAS_COMPLETE_FLAG))))
-        return false;
-*/
-    // multiplier (2^shift) used to prevent rounding errors
-    const uint8_t shift = 20;
-
-    // Speed optimize: Cache normLsb for multiple stop tof calculations
-    if (not m_normLsb)
-    {
-        const uint32_t calibration1 = spiReadReg24(TDC7200_REG_ADR_CALIBRATION1);
-        const uint32_t calibration2 = spiReadReg24(TDC7200_REG_ADR_CALIBRATION2);
-
-        // calCount scaled by 2^shift
-        const int64_t calCount = ( int64_t(calibration2-calibration1) << shift ) / int64_t(m_cal2Periods - 1);
-
-        // normLsb scaled by 2^shift, divided by calcount (scaled by 2^shift),
-        // so multiply by 2^(2*shift) to compensate for divider in calCount
-        m_normLsb  = (uint64_t(m_clkPeriodPs) << (2*shift)) / calCount;
-    }
-
-    switch (m_mode)
-    {
-        case 1:
-        {
-            const uint32_t timen        = spiReadReg24(TDC7200_REG_ADR_TIMEX(stop));          // TIME(n)
-            tof = ( int64_t(timen) * m_normLsb ) >> shift;
-            break;
-        }
-        case 2:
-        {
-            const uint32_t time1        = spiReadReg24(TDC7200_REG_ADR_TIME1);                // TIME1
-            const uint32_t timen1       = spiReadReg24(TDC7200_REG_ADR_TIMEX(stop + 1));      // TIME(n+1)
-            const uint32_t clockCountn  = spiReadReg24(TDC7200_REG_ADR_CLOCK_COUNTX(stop));   // CLOCK_COUNT(n)
-            tof = ( (int64_t(time1) - int64_t(timen1)) * m_normLsb ) >> shift;
-            tof += uint64_t(clockCountn) * uint64_t(m_clkPeriodPs);
-            break;
-        }
-        default: return false;
-    }
-    // TOF for a pulses that didn't occur will be reported as all ones.
-    // If this is the case, return 0 as value.
-    if (not (~tof)) tof = 0ull;
-    return true;
-}
-
-uint8_t TDC7200::spiReadReg8(const uint8_t addr)
+//void TDC7200::startMeasurement()
+//{
+//    // Clear status
+//    spiWriteReg8(TDC7200_REG_ADR_INT_STATUS,   bit(TDC7200_REG_SHIFT_INT_STATUS_MEAS_COMPLETE_FLAG)
+//                                             | bit(TDC7200_REG_SHIFT_INT_STATUS_MEAS_STARTED_FLAG)
+//                                             | bit(TDC7200_REG_SHIFT_INT_STATUS_CLOCK_CNTR_OVF_INT)
+//                                             | bit(TDC7200_REG_SHIFT_INT_STATUS_COARSE_CNTR_OVF_INT)
+//                                             | bit(TDC7200_REG_SHIFT_INT_STATUS_NEW_MEAS_INT) );
+//
+//    // Force recalculation of normLsb after measurement ended
+//    m_normLsb = 0ull;
+//
+//    // Start measurement
+//    spiWriteReg8(TDC7200_REG_ADR_CONFIG1, m_config1);
+//}
+//
+//bool TDC7200::readMeasurement(const uint8_t stop, uint64_t& tof)
+//{
+//    tof = 0ull;
+//
+//    if (stop > m_numStops)
+//        return false;
+///*
+//    uint8_t status = spiReadReg8(TDC7200_REG_ADR_INT_STATUS);
+//    if (not (status & (   bit(TDC7200_REG_SHIFT_INT_STATUS_MEAS_COMPLETE_FLAG))))
+//        return false;
+//*/
+//    // multiplier (2^shift) used to prevent rounding errors
+//    const uint8_t shift = 20;
+//
+//    // Speed optimize: Cache normLsb for multiple stop tof calculations
+//    if (not m_normLsb)
+//    {
+//        const uint32_t calibration1 = spiReadReg24(TDC7200_REG_ADR_CALIBRATION1);
+//        const uint32_t calibration2 = spiReadReg24(TDC7200_REG_ADR_CALIBRATION2);
+//
+//        // calCount scaled by 2^shift
+//        const int64_t calCount = ( int64_t(calibration2-calibration1) << shift ) / int64_t(m_cal2Periods - 1);
+//
+//        // normLsb scaled by 2^shift, divided by calcount (scaled by 2^shift),
+//        // so multiply by 2^(2*shift) to compensate for divider in calCount
+//        m_normLsb  = (uint64_t(m_clkPeriodPs) << (2*shift)) / calCount;
+//    }
+//
+//    switch (m_mode)
+//    {
+//        case 1:
+//        {
+//            const uint32_t timen        = spiReadReg24(TDC7200_REG_ADR_TIMEX(stop));          // TIME(n)
+//            tof = ( int64_t(timen) * m_normLsb ) >> shift;
+//            break;
+//        }
+//        case 2:
+//        {
+//            const uint32_t time1        = spiReadReg24(TDC7200_REG_ADR_TIME1);                // TIME1
+//            const uint32_t timen1       = spiReadReg24(TDC7200_REG_ADR_TIMEX(stop + 1));      // TIME(n+1)
+//            const uint32_t clockCountn  = spiReadReg24(TDC7200_REG_ADR_CLOCK_COUNTX(stop));   // CLOCK_COUNT(n)
+//            tof = ( (int64_t(time1) - int64_t(timen1)) * m_normLsb ) >> shift;
+//            tof += uint64_t(clockCountn) * uint64_t(m_clkPeriodPs);
+//            break;
+//        }
+//        default: return false;
+//    }
+//    // TOF for a pulses that didn't occur will be reported as all ones.
+//    // If this is the case, return 0 as value.
+//    if (not (~tof)) tof = 0ull;
+//    return true;
+//}
+//
+uint8_t TDC7200::spiReadReg8(const uint8_t addr,XSpi *SpiInstancePtr)
 {
 //    SPI.beginTransaction(SPISettings(TDC7200_SPI_CLK_MAX, TDC7200_SPI_ORDER, TDC7200_SPI_MODE));
 //    digitalWrite(m_pinCs, LOW);
 
-    SPI.transfer((addr & TDC7200_SPI_REG_ADDR_MASK) | TDC7200_SPI_REG_READ);
-    uint8_t val = SPI.transfer(0u);
-
+	xil_printf("slave selected \n \r");
+	u8 writebuffer = (addr & TDC7200_SPI_REG_ADDR_MASK) | TDC7200_SPI_REG_READ;
+	xil_printf("address %d writebuffer %d \n \r",addr,writebuffer);
+	u8 recievebuffer=0;
+	XSpi_Transfer(SpiInstancePtr,&writebuffer,&recievebuffer,1);
+    uint8_t val = recievebuffer;
+	xil_printf("recieved %d val %d\n \r",recievebuffer,val);
+//    XSpi_SetSlaveSelect(SpiInstancePtr, 0x00);
 //    digitalWrite(m_pinCs, HIGH);
-    SPI.endTransaction();
+//    SPI.endTransaction();
+//    uint8_t val;
 
     return val;
 }
 
-uint32_t TDC7200::spiReadReg24(const uint8_t addr)
+uint32_t TDC7200::spiReadReg24(const uint8_t addr,XSpi *SpiInstancePtr)
 {
 //    SPI.beginTransaction(SPISettings(TDC7200_SPI_CLK_MAX, TDC7200_SPI_ORDER, TDC7200_SPI_MODE));
 //    digitalWrite(m_pinCs, LOW);
-
-    SPI.transfer((addr & TDC7200_SPI_REG_ADDR_MASK) | TDC7200_SPI_REG_READ);
-    uint32_t val;
-    val = SPI.transfer(0u);
-    val <<= 8;
-    val |= SPI.transfer(0u);
-    val <<= 8;
-    val |= SPI.transfer(0u);
-
+	XSpi_SetSlaveSelect(SpiInstancePtr, 0x01);
+	u8 temp = (addr & TDC7200_SPI_REG_ADDR_MASK) | TDC7200_SPI_REG_READ;
+	u8 writebuffer[3];
+	writebuffer[0]=temp;
+	u8 recievebuffer[3];
+    XSpi_Transfer(SpiInstancePtr,writebuffer,recievebuffer,3);
+    uint32_t val=0;
+//    val = SPI.transfer(0u);
+      val |=recievebuffer[0];
+      val <<= 8;
+//    val |= SPI.transfer(0u);
+      val |=recievebuffer[1];
+      val <<= 8;
+      val |=recievebuffer[2];
+      val <<= 8;
+//    val |= SPI.transfer(0u);
+	XSpi_SetSlaveSelect(SpiInstancePtr, 0x00);
 //    digitalWrite(m_pinCs, HIGH);
-    SPI.endTransaction();
+//    SPI.endTransaction();
 
     return val;
 }
 
-void TDC7200::spiWriteReg8(const uint8_t addr, const uint8_t val)
+void TDC7200::spiWriteReg8(const uint8_t addr, const uint8_t val,XSpi *SpiInstancePtr)
 {
 //    SPI.beginTransaction(SPISettings(TDC7200_SPI_CLK_MAX, TDC7200_SPI_ORDER, TDC7200_SPI_MODE));
 //    digitalWrite(m_pinCs, LOW);
-
-    (void)SPI.transfer16((((addr & TDC7200_SPI_REG_ADDR_MASK) | TDC7200_SPI_REG_WRITE) << 8) | val);
-
+	XSpi_SetSlaveSelect(SpiInstancePtr, 0x01);
+	u8 writebuffer[2];
+	u8 temp = ((addr & TDC7200_SPI_REG_ADDR_MASK) | TDC7200_SPI_REG_WRITE);
+	writebuffer[0]=temp;
+	writebuffer[1]=val;
+	XSpi_Transfer(SpiInstancePtr,writebuffer,NULL,2);
+	XSpi_SetSlaveSelect(SpiInstancePtr, 0x00);
 //    digitalWrite(m_pinCs, HIGH);
-    SPI.endTransaction();
+//    SPI.endTransaction();
 }
