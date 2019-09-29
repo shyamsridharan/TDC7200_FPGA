@@ -26,7 +26,7 @@ class TDC7200
          * @param[in] pinCs       Mcu pin controlling TDC7200 SPI CSB input.
          * @param[in] clockFreqHz Clock frequency supplied at TDC7200 clock input, range [1..16] [MHz].
          */
-        TDC7200(const uint8_t pinEnable, const uint8_t pinCs, const uint32_t clockFreqHz);
+
 
         /**
          * Initialize TDC7200.
@@ -41,14 +41,14 @@ class TDC7200
          * @param[in] mode        Set measurement mode [1,2]. Mode 1 is for measurements <500 [ns].
          * @return                True, when all parameters were valid and setup succeeded.
          */
-        bool setupMeasurement(const uint8_t cal2Periods, const uint8_t avgCycles, const uint8_t numStops, const uint8_t mode);
+        bool setupMeasurement(uint8_t cal2Periods,uint8_t avgCycles,uint8_t numStops,uint8_t mode);
 
         /**
          * Setup stop mask.
          * @param[in] stopMaskPs  Duration of stop mask, in [ps]. Will be rounded to number of external
          *                        clock counts, so actual value used might be slightly different.
          */
-        void setupStopMask(const uint64_t stopMaskPs);
+        void setupStopMask(uint64_t stopMaskPs);
 
         /**
          * Setup overflow time.
@@ -56,7 +56,7 @@ class TDC7200
          *                        a timeout will occur.
          * @remark Currently only functional for mode2, as formula for mode1 doesn't seem correct.
          */
-        void setupOverflow(const uint64_t overflowPs);
+        void setupOverflow(uint64_t overflowPs);
 
         /**
          * Start a new measurement.
@@ -71,7 +71,7 @@ class TDC7200
          *                        pulse wasn't recorded (didn't occur, or not within overflow time).
          * @return                True, when all parameters were valid and time-of-flight was retrieved.
          */
-        bool readMeasurement(const uint8_t stop, uint64_t& tof);
+        bool readMeasurement(uint8_t stop, uint64_t& tof);
 
     private:
         uint8_t  m_pinEnable;       //< Mcu pin controlling TDC7200 enable input.
@@ -84,8 +84,8 @@ class TDC7200
         int64_t  m_normLsb;         //< Cached normLsb value for tof calculation.
         uint64_t m_overflowPs;      //< Overflow time, in [ps].
 
-        uint8_t  spiReadReg8(const uint8_t addr,XSpi *SpiInstancePtr);
-        uint32_t spiReadReg24(const uint8_t addr,XSpi *SpiInstancePtr);
-        void     spiWriteReg8(const uint8_t addr, const uint8_t val,XSpi *SpiInstancePtr);
+        uint8_t  spiReadReg8(uint8_t adr,XSpi *SpiInstancePtr);
+        uint32_t spiReadReg24(uint8_t adr,XSpi *SpiInstancePtr);
+        void     spiWriteReg8(uint8_t adr,uint8_t val,XSpi *SpiInstancePtr);
 };
 
